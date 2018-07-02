@@ -38,9 +38,9 @@ docker run -e 'REDIS_HOST=localhost' -e 'REDIS_PORT=6379' -p 8080:8080 key-value
 
 ### Common Errors
 
-  - 500 Internal Server Error
+  - 500 Internal Server Error  
     There is an unexpected error. In most cases, 200 Ok will return when you request again.
-  - 503 Service Unavailable
+  - 503 Service Unavailable  
     There is a problem with some backends.
 
 ### GET /v1/value
@@ -81,3 +81,59 @@ docker run -e 'REDIS_HOST=localhost' -e 'REDIS_PORT=6379' -p 8080:8080 key-value
     }
     ```
   - 400 Bad Request : Request body is invalid.
+
+### GET /v1/list
+
+#### Query Parameter
+
+  - `key` (string)
+
+#### Response
+
+  - 200 Ok
+    ```json
+    {
+      "key": "string",
+      "list": [
+        "string"
+      ]
+    }
+    ```
+  - 400 Bad Reqeust : No `key` specified.
+
+### POST /v1/list
+
+Append value to the list.
+
+#### Request Body
+
+```json
+{
+  "key": "string",
+  "value": "string"
+}
+```
+
+#### Response
+
+  - 200 Ok
+    ```json
+    {
+      "key": "string",
+      "value": "string"
+    }
+    ```
+  - 400 Bad Request : Request body in invalid.
+
+### DELETE /v1/list
+
+#### Query Parameter
+
+  - `key` (string)
+  - `value` (string) : Required if `delete_key` is `false`.
+  - `delete_key` (boolean) : If `true`, key (including all values) will be deleted. Default `false`.
+
+#### Response
+
+  - 200 Ok
+  - 400 Bad Request
