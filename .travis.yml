@@ -1,0 +1,27 @@
+language: go
+go:
+  - "1.10"
+
+sudo: required
+
+services:
+  - docker
+
+script:
+  - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags '-s' main.go
+
+after_success:
+  - if [ "${TRAVIS_PULL_REQUEST}" == "false" ]; then
+      docker login -u "$DOCKER_USERNAME" -p "$DOCKER_PASSWORD";
+
+      docker build -t hellodhlyn/key-value:${TRAVIS_BRANCH} .;
+      docker push hellodhlyn/key-value:${TRAVIS_BRANCH};
+
+      docker build -t hellodhlyn/key-value:latest .;
+      docker push hellodhlyn/key-value:latest;
+
+      if [ -n "${TRAVIS_TAG}" ]; then
+        docker build -t hellodhlyn/key-value:${TRAVIS_TAG} .;
+        docker push hellodhlyn/key-value:${TRAVIS_TAG};
+      fi
+    fi
