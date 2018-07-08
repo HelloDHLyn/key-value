@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
 )
 
@@ -36,121 +34,81 @@ func createRedisClient() *redis.Client {
 func main() {
 	redisClient := createRedisClient()
 
-	// GET /ping
-	http.HandleFunc("/ping", func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte("pong"))
+	server := gin.Default()
+
+	server.GET("/ping", func(c *gin.Context) {
+		c.String(200, "pong")
 	})
 
-	http.HandleFunc("/v1/value", func(w http.ResponseWriter, req *http.Request) {
-		switch req.Method {
-		// GET /v1/value
-		case "GET":
-			keyQuery := req.URL.Query()["key"]
-			if len(keyQuery) != 1 {
-				w.WriteHeader(400)
-				return
-			}
+	server.GET("/v1/value", func(c *gin.Context) {
+		key := c.Query("key")
+		value, err := redisClient.Get("Default::" + key).Result()
+		if err != nil && err != redis.Nil {
+			c.String(503, "")
+			return
+		}
 
-			value, err := redisClient.Get("Default::" + keyQuery[0]).Result()
-			if err != nil && err != redis.Nil {
-				w.WriteHeader(503)
-				return
-			}
+		c.JSON(200, KeyValue{Key: key, Value: value})
+	})
 
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(KeyValue{Key: keyQuery[0], Value: value})
+	server.POST("/v1/value", func(c *gin.Context) {
+		var keyValue KeyValue
+		c.ShouldBindJSON(&keyValue)
 
-		// POST /v1/value
-		case "POST":
-			body, err := ioutil.ReadAll(req.Body)
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
+		err := redisClient.Set("Default::"+keyValue.Key, keyValue.Value, 0).Err()
+		if err != nil {
+			c.String(500, "")
+			return
+		}
 
-			var keyValue KeyValue
-			err = json.Unmarshal(body, &keyValue)
-			if err != nil {
-				w.WriteHeader(400)
-				return
-			}
+		c.JSON(200, KeyValue{Key: keyValue.Key, Value: keyValue.Value})
+	})
 
-			err = redisClient.Set("Default::"+keyValue.Key, keyValue.Value, 0).Err()
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
+	server.GET("/v1/list", func(c *gin.Context) {
+		key := c.Query("key")
+		value, err := redisClient.LRange("Default::"+key, 0, -1).Result()
+		if err != nil && err != redis.Nil {
+			c.String(503, "")
+			return
+		}
 
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(KeyValue{Key: keyValue.Key, Value: keyValue.Value})
+		c.JSON(200, KeyValueList{Key: key, List: value})
+	})
+
+	server.POST("/v1/list", func(c *gin.Context) {
+		var keyValue KeyValue
+		c.ShouldBindJSON(&keyValue)
+
+		err := redisClient.RPush("Default::"+keyValue.Key, keyValue.Value).Err()
+		if err != nil {
+			c.String(500, "")
+			return
+		}
+
+		c.JSON(200, KeyValue{Key: keyValue.Key, Value: keyValue.Value})
+	})
+
+	server.DELETE("/v1/list", func(c *gin.Context) {
+		key := c.Query("key")
+		if len(key) == 0 {
+			c.String(400, "")
+			return
+		}
+
+		deleteKey := c.Query("delete_key")
+		value := c.Query("value")
+
+		if deleteKey == "true" {
+			redisClient.Del("Default::" + key)
+			c.String(200, "")
+		} else if value != "" {
+			redisClient.LRem("Default::"+key, 0, value)
+			c.String(200, "")
+		} else {
+			c.String(400, "")
+			return
 		}
 	})
 
-	http.HandleFunc("/v1/list", func(w http.ResponseWriter, req *http.Request) {
-		switch req.Method {
-		// GET /v1/list
-		case "GET":
-			keyQuery := req.URL.Query()["key"]
-			if len(keyQuery) != 1 {
-				w.WriteHeader(400)
-				return
-			}
-
-			value, err := redisClient.LRange("Default::"+keyQuery[0], 0, -1).Result()
-			if err != nil && err != redis.Nil {
-				w.WriteHeader(503)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(KeyValueList{Key: keyQuery[0], List: value})
-
-		// POST /v1/list
-		case "POST":
-			body, err := ioutil.ReadAll(req.Body)
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
-
-			var keyValue KeyValue
-			err = json.Unmarshal(body, &keyValue)
-			if err != nil {
-				w.WriteHeader(400)
-				return
-			}
-
-			err = redisClient.RPush("Default::"+keyValue.Key, keyValue.Value).Err()
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(KeyValue{Key: keyValue.Key, Value: keyValue.Value})
-
-		// DELETE /v1/list
-		case "DELETE":
-			keyQuery := req.URL.Query()["key"]
-			if len(keyQuery) != 1 {
-				w.WriteHeader(400)
-				return
-			}
-			key := keyQuery[0]
-
-			deleteKeyQuery := req.URL.Query()["delete_key"]
-			valueQuery := req.URL.Query()["value"]
-
-			if len(deleteKeyQuery) == 1 && deleteKeyQuery[0] == "true" {
-				redisClient.Del("Default::" + key)
-			} else if len(valueQuery) == 1 {
-				redisClient.LRem("Default::"+key, 0, valueQuery[0])
-			} else {
-				w.WriteHeader(400)
-				return
-			}
-		}
-	})
-
-	http.ListenAndServe(":8080", nil)
+	server.Run(":8080")
 }
